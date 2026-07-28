@@ -549,21 +549,27 @@
     ]
   };
 
+  function parseDate(str){
+    const [y,m,d] = str.split('-').map(Number);
+    return new Date(y, m-1, d);
+  }
+
+  function sortStagesByStart(stages){
+    return [...stages].sort((a, b) => parseDate(a.start) - parseDate(b.start));
+  }
+
   function loadData(){
     try{
       const raw = localStorage.getItem(STORAGE_KEY);
       if(!raw) return structuredClone(DEFAULTS);
       const parsed = JSON.parse(raw);
       if(!parsed.departure || !parsed.returnDate || !Array.isArray(parsed.stages)) return structuredClone(DEFAULTS);
+      parsed.stages = sortStagesByStart(parsed.stages);
       return parsed;
     }catch(e){ return structuredClone(DEFAULTS); }
   }
   function saveData(data){ localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); }
 
-  function parseDate(str){
-    const [y,m,d] = str.split('-').map(Number);
-    return new Date(y, m-1, d);
-  }
   function dayCount(a,b){ return Math.round((b-a)/(24*60*60*1000)); }
   function fmtShort(dateStr){
     return parseDate(dateStr).toLocaleDateString('en-AU', { day:'2-digit', month:'short' });
@@ -746,7 +752,11 @@
     `;
 
     row.querySelector('.s-name').addEventListener('input', (e) => { stage.city = e.target.value; });
-    row.querySelector('.s-start').addEventListener('change', (e) => { stage.start = e.target.value; });
+    row.querySelector('.s-start').addEventListener('change', (e) => {
+      stage.start = e.target.value;
+      editStages = sortStagesByStart(editStages);
+      renderStageEditor();
+    });
     row.querySelector('.s-end').addEventListener('change', (e) => { stage.end = e.target.value; });
 
     row.querySelector('.s-photo').addEventListener('change', async (e) => {
@@ -785,6 +795,7 @@
     const end = new Date(start.getTime() + 13*86400000);
     const endStr = end.toISOString().slice(0,10);
     editStages.push({ city: 'New stage', start: startStr, end: endStr, image: '' });
+    editStages = sortStagesByStart(editStages);
     renderStageEditor();
   });
 
@@ -858,12 +869,12 @@
       routeInput.value = parsed.route || DEFAULTS.route;
       depInput.value = parsed.departure;
       retInput.value = parsed.returnDate;
-      editStages = parsed.stages.map(s => ({
+      editStages = sortStagesByStart(parsed.stages.map(s => ({
         city: s.city || '',
         start: s.start || '',
         end: s.end || '',
         image: s.image || ''
-      }));
+      })));
       renderStageEditor();
     }catch(err){
       alert("Could not read that file — please make sure it's a JSON backup exported from this app.");
