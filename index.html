@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Holiday Tracker</title>
+<title>Fieldwork Tracker</title>
 
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#0E3E34">
@@ -239,6 +239,89 @@
   .drawer__header h2{
     font-family:'Space Grotesk', sans-serif;
     font-size:18px; margin:0;
+  }
+
+  .drawer-tabs{
+    display:flex;
+    gap:8px;
+    margin-bottom:18px;
+  }
+  .drawer-tab-btn{
+    flex:1;
+    padding:9px;
+    background: var(--card-bg-2);
+    border:none;
+    border-radius:10px;
+    color: var(--text-soft);
+    font-family:'DM Mono', monospace;
+    font-size:11.5px;
+    letter-spacing:0.03em;
+    cursor:pointer;
+    transition: background .15s ease, color .15s ease;
+  }
+  .drawer-tab-btn.active{
+    background: var(--orange);
+    color:#1D2A19;
+  }
+
+  .cal-month{ margin-bottom:24px; }
+  .cal-month__title{
+    font-family:'Space Grotesk', sans-serif;
+    font-size:14px;
+    margin-bottom:10px;
+    color: var(--text);
+  }
+  .cal-grid{
+    display:grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap:5px;
+  }
+  .cal-weekday{
+    font-family:'DM Mono', monospace;
+    font-size:9px;
+    text-align:center;
+    color: var(--text-faint);
+    text-transform:uppercase;
+    padding-bottom:4px;
+  }
+  .cal-day{
+    position:relative;
+    aspect-ratio:1;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    border-radius:8px;
+    background: var(--card-bg-2);
+    font-family:'DM Mono', monospace;
+    font-size:11px;
+    color: var(--text-soft);
+    cursor:pointer;
+    transition: background .15s ease;
+  }
+  .cal-day:hover{ background: var(--card-bg-3); }
+  .cal-day.is-empty{ background:none; cursor:default; }
+  .cal-day.is-outside-trip{ opacity:0.4; }
+  .cal-day.is-today{ outline:2px solid var(--orange); outline-offset:-2px; }
+  .cal-day.has-note::after{
+    content:'';
+    position:absolute;
+    bottom:4px;
+    width:4px; height:4px;
+    border-radius:50%;
+    background: var(--orange);
+  }
+
+  .field textarea{
+    width:100%;
+    font-family:'DM Mono', monospace;
+    font-size:13px;
+    line-height:1.6;
+    padding:10px 12px;
+    border-radius:10px;
+    border:1px solid rgba(244,241,234,0.18);
+    background: var(--card-bg-2);
+    color: var(--text);
+    resize:vertical;
   }
 
   .drawer-item{
@@ -482,10 +565,35 @@
 <div class="drawer-overlay" id="drawerOverlay">
   <div class="drawer">
     <div class="drawer__header">
-      <h2>Itinerary</h2>
+      <h2 id="drawerTitle">Itinerary</h2>
       <button class="modal-close" id="closeDrawer" aria-label="Close">✕</button>
     </div>
-    <div id="drawerList"></div>
+    <div class="drawer-tabs">
+      <button class="drawer-tab-btn active" id="tabBtnItinerary" type="button">Itinerary</button>
+      <button class="drawer-tab-btn" id="tabBtnJournal" type="button">Journal</button>
+    </div>
+    <div id="tabItinerary">
+      <div id="drawerList"></div>
+    </div>
+    <div id="tabJournal" style="display:none;">
+      <div id="journalCalendar"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ---------- journal note modal ---------- -->
+<div class="overlay" id="noteOverlay">
+  <div class="modal">
+    <button class="modal-close" id="closeNote" aria-label="Close">✕</button>
+    <h2 id="noteDateTitle">3 August 2026</h2>
+    <p class="hint" id="noteStageHint"></p>
+    <div class="field">
+      <textarea id="noteText" rows="7" placeholder="What happened today?"></textarea>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" id="deleteNote" type="button">Delete</button>
+      <button class="btn btn-primary" id="saveNote" type="button">Save</button>
+    </div>
   </div>
 </div>
 
@@ -536,6 +644,7 @@
 <script>
 (function(){
   const STORAGE_KEY = 'holidayTrackerData';
+  const JOURNAL_KEY = 'holidayTrackerJournal';
 
   const DEFAULTS = {
     route: "Yixiao's Field Work",
@@ -569,6 +678,20 @@
     }catch(e){ return structuredClone(DEFAULTS); }
   }
   function saveData(data){ localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); }
+
+  function loadJournal(){
+    try{
+      const raw = localStorage.getItem(JOURNAL_KEY);
+      if(!raw) return {};
+      const parsed = JSON.parse(raw);
+      return (parsed && typeof parsed === 'object') ? parsed : {};
+    }catch(e){ return {}; }
+  }
+  function saveJournal(notes){ localStorage.setItem(JOURNAL_KEY, JSON.stringify(notes)); }
+  function isoDate(d){
+    const y = d.getFullYear(), m = String(d.getMonth()+1).padStart(2,'0'), day = String(d.getDate()).padStart(2,'0');
+    return `${y}-${m}-${day}`;
+  }
 
   function dayCount(a,b){ return Math.round((b-a)/(24*60*60*1000)); }
   function fmtShort(dateStr){
@@ -676,6 +799,147 @@
   document.getElementById('openMenu').addEventListener('click', () => drawerOverlay.classList.add('open'));
   document.getElementById('closeDrawer').addEventListener('click', () => drawerOverlay.classList.remove('open'));
   drawerOverlay.addEventListener('click', (e) => { if(e.target === drawerOverlay) drawerOverlay.classList.remove('open'); });
+
+  // ---------- drawer tabs ----------
+  const tabBtnItinerary = document.getElementById('tabBtnItinerary');
+  const tabBtnJournal = document.getElementById('tabBtnJournal');
+  const tabItinerary = document.getElementById('tabItinerary');
+  const tabJournal = document.getElementById('tabJournal');
+
+  tabBtnItinerary.addEventListener('click', () => {
+    tabBtnItinerary.classList.add('active');
+    tabBtnJournal.classList.remove('active');
+    tabItinerary.style.display = '';
+    tabJournal.style.display = 'none';
+  });
+  tabBtnJournal.addEventListener('click', () => {
+    tabBtnJournal.classList.add('active');
+    tabBtnItinerary.classList.remove('active');
+    tabItinerary.style.display = 'none';
+    tabJournal.style.display = '';
+    renderJournalCalendar();
+  });
+
+  // ---------- journal calendar ----------
+  function monthLabel(year, monthIdx){
+    return new Date(year, monthIdx, 1).toLocaleDateString('en-AU', { month: 'long', year: 'numeric' });
+  }
+
+  function findStageForDate(stages, dateObj){
+    return stages.find(s => dateObj >= parseDate(s.start) && dateObj <= parseDate(s.end));
+  }
+
+  function renderJournalCalendar(){
+    const data = loadData();
+    const journal = loadJournal();
+    const dep = parseDate(data.departure);
+    const ret = parseDate(data.returnDate);
+    const today = todayAtMidnight();
+
+    const container = document.getElementById('journalCalendar');
+    container.innerHTML = '';
+
+    let cursor = new Date(dep.getFullYear(), dep.getMonth(), 1);
+    const endCursor = new Date(ret.getFullYear(), ret.getMonth(), 1);
+    const weekdayLabels = ['MO','TU','WE','TH','FR','SA','SU'];
+
+    while(cursor <= endCursor){
+      const year = cursor.getFullYear();
+      const monthIdx = cursor.getMonth();
+      const firstOfMonth = new Date(year, monthIdx, 1);
+      const daysInMonth = new Date(year, monthIdx + 1, 0).getDate();
+      const firstWeekday = (firstOfMonth.getDay() + 6) % 7; // Monday-first
+
+      const monthBlock = document.createElement('div');
+      monthBlock.className = 'cal-month';
+      const titleEl = document.createElement('div');
+      titleEl.className = 'cal-month__title';
+      titleEl.textContent = monthLabel(year, monthIdx);
+      monthBlock.appendChild(titleEl);
+
+      const grid = document.createElement('div');
+      grid.className = 'cal-grid';
+      weekdayLabels.forEach(w => {
+        const el = document.createElement('div');
+        el.className = 'cal-weekday';
+        el.textContent = w;
+        grid.appendChild(el);
+      });
+      for(let i = 0; i < firstWeekday; i++){
+        const empty = document.createElement('div');
+        empty.className = 'cal-day is-empty';
+        grid.appendChild(empty);
+      }
+      for(let d = 1; d <= daysInMonth; d++){
+        const dateObj = new Date(year, monthIdx, d);
+        const dStr = isoDate(dateObj);
+        const cell = document.createElement('div');
+        let cls = 'cal-day';
+        if(dateObj < dep || dateObj > ret) cls += ' is-outside-trip';
+        if(dateObj.getTime() === today.getTime()) cls += ' is-today';
+        if(journal[dStr] && journal[dStr].trim()) cls += ' has-note';
+        cell.className = cls;
+        cell.textContent = String(d);
+        cell.addEventListener('click', () => openNoteModal(dStr));
+        grid.appendChild(cell);
+      }
+
+      monthBlock.appendChild(grid);
+      container.appendChild(monthBlock);
+      cursor = new Date(year, monthIdx + 1, 1);
+    }
+  }
+
+  // ---------- journal note modal ----------
+  let activeNoteDate = null;
+  const noteOverlay = document.getElementById('noteOverlay');
+  const noteText = document.getElementById('noteText');
+
+  function openNoteModal(dateStr){
+    activeNoteDate = dateStr;
+    const data = loadData();
+    const journal = loadJournal();
+    const dateObj = parseDate(dateStr);
+    document.getElementById('noteDateTitle').textContent = dateObj.toLocaleDateString('en-AU', { day: 'numeric', month: 'long', year: 'numeric' });
+
+    const dep = parseDate(data.departure);
+    const ret = parseDate(data.returnDate);
+    let hint;
+    if(dateObj >= dep && dateObj <= ret){
+      const dayNum = dayCount(dep, dateObj) + 1;
+      const stage = findStageForDate(data.stages, dateObj);
+      hint = `Day ${dayNum} of trip`;
+      if(stage) hint += ` · ${stage.city}`;
+    } else {
+      hint = 'Outside trip dates';
+    }
+    document.getElementById('noteStageHint').textContent = hint;
+    noteText.value = journal[dateStr] || '';
+    noteOverlay.classList.add('open');
+  }
+  function closeNoteModal(){ noteOverlay.classList.remove('open'); activeNoteDate = null; }
+
+  document.getElementById('closeNote').addEventListener('click', closeNoteModal);
+  noteOverlay.addEventListener('click', (e) => { if(e.target === noteOverlay) closeNoteModal(); });
+
+  document.getElementById('saveNote').addEventListener('click', () => {
+    if(!activeNoteDate) return;
+    const journal = loadJournal();
+    const val = noteText.value.trim();
+    if(val){ journal[activeNoteDate] = val; } else { delete journal[activeNoteDate]; }
+    saveJournal(journal);
+    closeNoteModal();
+    renderJournalCalendar();
+  });
+
+  document.getElementById('deleteNote').addEventListener('click', () => {
+    if(!activeNoteDate) return;
+    const journal = loadJournal();
+    delete journal[activeNoteDate];
+    saveJournal(journal);
+    closeNoteModal();
+    renderJournalCalendar();
+  });
 
   // ---------- image resize helper ----------
   function resizeImageFile(file, maxDim, quality){
@@ -835,7 +1099,7 @@
 
   document.getElementById('resetDefaults').addEventListener('click', () => {
     if(confirm('Reset to the default trip? This clears your edits. A backup of your current data will download first — check your Downloads folder if you ever need to undo this.')){
-      downloadJSON(loadData(), 'holiday-tracker-before-reset');
+      downloadJSON({ ...loadData(), notes: loadJournal() }, 'holiday-tracker-before-reset');
       saveData(structuredClone(DEFAULTS));
       openModal();
       render();
@@ -847,7 +1111,8 @@
       route: routeInput.value.trim() || DEFAULTS.route,
       departure: depInput.value,
       returnDate: retInput.value,
-      stages: editStages
+      stages: editStages,
+      notes: loadJournal()
     });
   });
 
@@ -862,7 +1127,7 @@
         e.target.value = '';
         return;
       }
-      if(!confirm("Load this backup into the editor? Your current unsaved edits here will be replaced — you'll still need to tap Save to apply it.")){
+      if(!confirm("Load this backup? Trip details load into the editor (tap Save to apply them). Any journal notes in the file will be merged in immediately.")){
         e.target.value = '';
         return;
       }
@@ -876,6 +1141,9 @@
         image: s.image || ''
       })));
       renderStageEditor();
+      if(parsed.notes && typeof parsed.notes === 'object'){
+        saveJournal({ ...loadJournal(), ...parsed.notes });
+      }
     }catch(err){
       alert("Could not read that file — please make sure it's a JSON backup exported from this app.");
     }
