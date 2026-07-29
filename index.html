@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Fieldwork Tracker</title>
+<title>Holiday Tracker</title>
 
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#0E3E34">
@@ -122,6 +122,32 @@
     display:flex;
     flex-direction:column;
     align-items:center;
+  }
+
+  .clock-row{
+    display:flex;
+    align-items:center;
+    gap:18px;
+    margin-bottom:22px;
+  }
+  .clock-item{ text-align:center; }
+  .clock-city{
+    font-family:'DM Mono', monospace;
+    font-size:9.5px;
+    letter-spacing:0.1em;
+    text-transform:uppercase;
+    color: var(--text-faint);
+    margin-bottom:5px;
+  }
+  .clock-time{
+    font-family:'Space Grotesk', sans-serif;
+    font-weight:700;
+    font-size:19px;
+    color: var(--text);
+  }
+  .clock-divider{
+    width:1px; height:26px;
+    background: rgba(244,241,234,0.15);
   }
 
   .donut-wrap{
@@ -495,6 +521,74 @@
   }
   .stage-row__delete:hover{ color: var(--orange); }
 
+  .info-row{
+    display:flex; gap:10px;
+    align-items:flex-start;
+    background: var(--card-bg-2);
+    border-radius: 14px;
+    padding: 10px;
+    margin-bottom: 10px;
+  }
+  .info-row__fields{ flex:1; min-width:0; display:flex; flex-direction:column; gap:6px; }
+  .info-row__fields input, .info-row__fields select{
+    width:100%;
+    font-family:'DM Mono', monospace;
+    font-size:12.5px;
+    padding:7px 9px;
+    border-radius:8px;
+    border:1px solid rgba(244,241,234,0.16);
+    background: var(--card-bg);
+    color: var(--text);
+  }
+  .info-row__fields select{
+    color: var(--orange);
+    font-size:10.5px;
+    letter-spacing:0.06em;
+    text-transform:uppercase;
+    padding:6px 8px;
+  }
+  .info-row__fields .i-title{ font-weight:500; }
+
+  .info-field{ display:flex; flex-direction:column; gap:4px; }
+  .info-field__label{
+    font-family:'DM Mono', monospace;
+    font-size:9px;
+    letter-spacing:0.06em;
+    text-transform:uppercase;
+    color: var(--text-faint);
+    padding-left:1px;
+  }
+
+  .info-row{ touch-action: pan-y; }
+  .info-row.is-dragging{
+    position:relative;
+    z-index:20;
+    box-shadow: 0 10px 24px rgba(2,10,8,0.45);
+    border-radius:14px;
+  }
+  .info-row__handle{
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    padding:0 2px;
+    color: var(--text-faint);
+    cursor:grab;
+    touch-action:none;
+    -webkit-user-select:none;
+    user-select:none;
+    flex-shrink:0;
+  }
+  .info-row__handle:active{ cursor:grabbing; }
+  .info-row__handle svg{ width:16px; height:16px; }
+
+  .info-row__delete{
+    border:none; background:none;
+    color: var(--text-faint);
+    font-size:16px; cursor:pointer;
+    padding:4px; flex-shrink:0;
+  }
+  .info-row__delete:hover{ color: var(--orange); }
+
   .add-stage-btn{
     border: 1px dashed rgba(244,241,234,0.3);
     background: none;
@@ -531,6 +625,17 @@
     </div>
 
     <div class="hero">
+      <div class="clock-row">
+        <div class="clock-item">
+          <div class="clock-city">Melbourne</div>
+          <div class="clock-time" id="clockMel">--:--</div>
+        </div>
+        <div class="clock-divider"></div>
+        <div class="clock-item">
+          <div class="clock-city">China</div>
+          <div class="clock-time" id="clockChina">--:--</div>
+        </div>
+      </div>
       <div class="donut-wrap">
         <svg viewBox="0 0 200 200">
           <circle cx="100" cy="100" r="82" fill="none" stroke="var(--tan-accent)" stroke-width="14"/>
@@ -571,12 +676,17 @@
     <div class="drawer-tabs">
       <button class="drawer-tab-btn active" id="tabBtnItinerary" type="button">Itinerary</button>
       <button class="drawer-tab-btn" id="tabBtnJournal" type="button">Journal</button>
+      <button class="drawer-tab-btn" id="tabBtnInfo" type="button">Info</button>
     </div>
     <div id="tabItinerary">
       <div id="drawerList"></div>
     </div>
     <div id="tabJournal" style="display:none;">
       <div id="journalCalendar"></div>
+    </div>
+    <div id="tabInfo" style="display:none;">
+      <div id="infoList"></div>
+      <button class="add-stage-btn" id="addInfoItem" type="button">+ Add item</button>
     </div>
   </div>
 </div>
@@ -645,6 +755,7 @@
 (function(){
   const STORAGE_KEY = 'holidayTrackerData';
   const JOURNAL_KEY = 'holidayTrackerJournal';
+  const INFO_KEY = 'holidayTrackerInfo';
 
   const DEFAULTS = {
     route: "Yixiao's Field Work",
@@ -688,6 +799,24 @@
     }catch(e){ return {}; }
   }
   function saveJournal(notes){ localStorage.setItem(JOURNAL_KEY, JSON.stringify(notes)); }
+
+  const INFO_TYPES = ['contact', 'transport', 'accommodation', 'other'];
+  function normalizeInfoItem(item){
+    if(item && item.type && INFO_TYPES.includes(item.type) && 'title' in item){
+      return { type: item.type, title: item.title || '', line1: item.line1 || '', line2: item.line2 || '' };
+    }
+    // legacy {label, value} shape from before typed cards existed
+    return { type: 'other', title: (item && item.label) || '', line1: (item && item.value) || '', line2: '' };
+  }
+  function loadInfo(){
+    try{
+      const raw = localStorage.getItem(INFO_KEY);
+      if(!raw) return [];
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed.map(normalizeInfoItem) : [];
+    }catch(e){ return []; }
+  }
+  function saveInfo(items){ localStorage.setItem(INFO_KEY, JSON.stringify(items)); }
   function isoDate(d){
     const y = d.getFullYear(), m = String(d.getMonth()+1).padStart(2,'0'), day = String(d.getDate()).padStart(2,'0');
     return `${y}-${m}-${day}`;
@@ -801,23 +930,21 @@
   drawerOverlay.addEventListener('click', (e) => { if(e.target === drawerOverlay) drawerOverlay.classList.remove('open'); });
 
   // ---------- drawer tabs ----------
-  const tabBtnItinerary = document.getElementById('tabBtnItinerary');
-  const tabBtnJournal = document.getElementById('tabBtnJournal');
-  const tabItinerary = document.getElementById('tabItinerary');
-  const tabJournal = document.getElementById('tabJournal');
-
-  tabBtnItinerary.addEventListener('click', () => {
-    tabBtnItinerary.classList.add('active');
-    tabBtnJournal.classList.remove('active');
-    tabItinerary.style.display = '';
-    tabJournal.style.display = 'none';
-  });
-  tabBtnJournal.addEventListener('click', () => {
-    tabBtnJournal.classList.add('active');
-    tabBtnItinerary.classList.remove('active');
-    tabItinerary.style.display = 'none';
-    tabJournal.style.display = '';
-    renderJournalCalendar();
+  const tabs = [
+    { btn: document.getElementById('tabBtnItinerary'), panel: document.getElementById('tabItinerary'), title: 'Itinerary', onShow: null },
+    { btn: document.getElementById('tabBtnJournal'), panel: document.getElementById('tabJournal'), title: 'Journal', onShow: () => renderJournalCalendar() },
+    { btn: document.getElementById('tabBtnInfo'), panel: document.getElementById('tabInfo'), title: 'Info', onShow: () => renderInfoList() }
+  ];
+  tabs.forEach(tab => {
+    tab.btn.addEventListener('click', () => {
+      tabs.forEach(t => {
+        const active = t === tab;
+        t.btn.classList.toggle('active', active);
+        t.panel.style.display = active ? '' : 'none';
+      });
+      document.getElementById('drawerTitle').textContent = tab.title;
+      if(tab.onShow) tab.onShow();
+    });
   });
 
   // ---------- journal calendar ----------
@@ -940,6 +1067,174 @@
     closeNoteModal();
     renderJournalCalendar();
   });
+
+  // ---------- quick-reference info tab ----------
+  let infoItems = [];
+
+  const INFO_TYPE_META = {
+    contact:       { label: 'Contact',       title: 'Name',                line1: 'Phone / email',       line2: 'Relationship / notes' },
+    transport:     { label: 'Transport',     title: 'e.g. Outbound flight', line1: 'Carrier & number',    line2: 'Date & time · route' },
+    accommodation: { label: 'Accommodation', title: 'Property name',       line1: 'Address',              line2: 'Check-in → check-out' },
+    other:         { label: 'Other',         title: 'Label',               line1: 'Details',               line2: 'Extra notes (optional)' }
+  };
+
+  function applyInfoFieldMeta(row, type){
+    const meta = INFO_TYPE_META[type] || INFO_TYPE_META.other;
+    row.querySelector('.i-title-label').textContent = meta.title;
+    row.querySelector('.i-line1-label').textContent = meta.line1;
+    row.querySelector('.i-line2-label').textContent = meta.line2;
+  }
+
+  const GRIP_ICON_SVG = `<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="9" cy="6" r="1.5"/><circle cx="15" cy="6" r="1.5"/><circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="9" cy="18" r="1.5"/><circle cx="15" cy="18" r="1.5"/></svg>`;
+
+  function buildInfoRow(item){
+    const row = document.createElement('div');
+    row.className = 'info-row';
+    row._infoItem = item;
+    const typeOptions = INFO_TYPES.map(t =>
+      `<option value="${t}" ${item.type === t ? 'selected' : ''}>${INFO_TYPE_META[t].label}</option>`
+    ).join('');
+    row.innerHTML = `
+      <div class="info-row__handle" aria-label="Drag to reorder">${GRIP_ICON_SVG}</div>
+      <div class="info-row__fields">
+        <select class="i-type">${typeOptions}</select>
+        <div class="info-field">
+          <label class="info-field__label i-title-label"></label>
+          <input type="text" class="i-title" value="${(item.title || '').replace(/"/g,'&quot;')}">
+        </div>
+        <div class="info-field">
+          <label class="info-field__label i-line1-label"></label>
+          <input type="text" class="i-line1" value="${(item.line1 || '').replace(/"/g,'&quot;')}">
+        </div>
+        <div class="info-field">
+          <label class="info-field__label i-line2-label"></label>
+          <input type="text" class="i-line2" value="${(item.line2 || '').replace(/"/g,'&quot;')}">
+        </div>
+      </div>
+      <button type="button" class="info-row__delete" aria-label="Remove item">✕</button>
+    `;
+    applyInfoFieldMeta(row, item.type);
+
+    row.querySelector('.i-type').addEventListener('change', (e) => {
+      item.type = e.target.value;
+      applyInfoFieldMeta(row, item.type);
+      saveInfo(infoItems);
+    });
+    row.querySelector('.i-title').addEventListener('input', (e) => { item.title = e.target.value; saveInfo(infoItems); });
+    row.querySelector('.i-line1').addEventListener('input', (e) => { item.line1 = e.target.value; saveInfo(infoItems); });
+    row.querySelector('.i-line2').addEventListener('input', (e) => { item.line2 = e.target.value; saveInfo(infoItems); });
+    row.querySelector('.info-row__delete').addEventListener('click', () => {
+      const idx = infoItems.indexOf(item);
+      if(idx > -1) infoItems.splice(idx, 1);
+      saveInfo(infoItems);
+      renderInfoList();
+    });
+
+    wireInfoDrag(row, row.querySelector('.info-row__handle'));
+    return row;
+  }
+
+  // ---------- drag-to-reorder for info cards ----------
+  function wireInfoDrag(row, handle){
+    let dragging = false;
+    let startY = 0;
+    let originalIndex = 0;
+    let currentIndex = 0;
+    let rowStep = 0;
+    let rows = [];
+
+    handle.addEventListener('pointerdown', (e) => {
+      const container = document.getElementById('infoList');
+      rows = Array.from(container.querySelectorAll('.info-row'));
+      originalIndex = rows.indexOf(row);
+      currentIndex = originalIndex;
+      if(originalIndex === -1) return;
+
+      dragging = true;
+      startY = e.clientY;
+      const rect = row.getBoundingClientRect();
+      const style = getComputedStyle(row);
+      rowStep = rect.height + parseFloat(style.marginBottom || 0);
+
+      row.classList.add('is-dragging');
+      rows.forEach(r => { r.style.transition = 'transform .15s ease'; });
+      row.style.transition = 'none';
+
+      handle.setPointerCapture(e.pointerId);
+      e.preventDefault();
+    });
+
+    handle.addEventListener('pointermove', (e) => {
+      if(!dragging) return;
+      const deltaY = e.clientY - startY;
+      row.style.transform = `translateY(${deltaY}px)`;
+
+      const rawIndex = originalIndex + Math.round(deltaY / rowStep);
+      const newIndex = Math.max(0, Math.min(rows.length - 1, rawIndex));
+      if(newIndex !== currentIndex){
+        currentIndex = newIndex;
+        rows.forEach((r, i) => {
+          if(r === row) return;
+          let shift = 0;
+          if(currentIndex > originalIndex && i > originalIndex && i <= currentIndex) shift = -rowStep;
+          else if(currentIndex < originalIndex && i < originalIndex && i >= currentIndex) shift = rowStep;
+          r.style.transform = shift ? `translateY(${shift}px)` : '';
+        });
+      }
+    });
+
+    function endDrag(e){
+      if(!dragging) return;
+      dragging = false;
+      try{ handle.releasePointerCapture(e.pointerId); }catch(err){}
+
+      row.classList.remove('is-dragging');
+      rows.forEach(r => { r.style.transition = ''; r.style.transform = ''; });
+
+      if(currentIndex !== originalIndex){
+        infoItems.splice(originalIndex, 1);
+        infoItems.splice(currentIndex, 0, item_ref(row));
+        saveInfo(infoItems);
+      }
+      renderInfoList();
+    }
+    handle.addEventListener('pointerup', endDrag);
+    handle.addEventListener('pointercancel', endDrag);
+  }
+  function item_ref(row){ return row._infoItem; }
+
+  function renderInfoList(){
+    infoItems = loadInfo();
+    const container = document.getElementById('infoList');
+    container.innerHTML = '';
+    if(infoItems.length === 0){
+      const empty = document.createElement('p');
+      empty.className = 'hint';
+      empty.textContent = 'Nothing saved yet — add flight numbers, accommodation, emergency contacts, anything worth having on hand.';
+      container.appendChild(empty);
+    } else {
+      infoItems.forEach(item => container.appendChild(buildInfoRow(item)));
+    }
+  }
+
+  document.getElementById('addInfoItem').addEventListener('click', () => {
+    infoItems.push({ type: 'other', title: '', line1: '', line2: '' });
+    saveInfo(infoItems);
+    renderInfoList();
+    const titleInputs = document.querySelectorAll('#infoList .i-title');
+    if(titleInputs.length) titleInputs[titleInputs.length - 1].focus();
+  });
+
+  // ---------- dual clock ----------
+  const clockMelFmt = new Intl.DateTimeFormat('en-AU', { timeZone: 'Australia/Melbourne', hour: '2-digit', minute: '2-digit', hour12: false });
+  const clockCnFmt = new Intl.DateTimeFormat('en-AU', { timeZone: 'Asia/Shanghai', hour: '2-digit', minute: '2-digit', hour12: false });
+  function updateClocks(){
+    const now = new Date();
+    document.getElementById('clockMel').textContent = clockMelFmt.format(now);
+    document.getElementById('clockChina').textContent = clockCnFmt.format(now);
+  }
+  updateClocks();
+  setInterval(updateClocks, 30000);
 
   // ---------- image resize helper ----------
   function resizeImageFile(file, maxDim, quality){
@@ -1099,7 +1394,7 @@
 
   document.getElementById('resetDefaults').addEventListener('click', () => {
     if(confirm('Reset to the default trip? This clears your edits. A backup of your current data will download first — check your Downloads folder if you ever need to undo this.')){
-      downloadJSON({ ...loadData(), notes: loadJournal() }, 'holiday-tracker-before-reset');
+      downloadJSON({ ...loadData(), notes: loadJournal(), info: loadInfo() }, 'holiday-tracker-before-reset');
       saveData(structuredClone(DEFAULTS));
       openModal();
       render();
@@ -1112,7 +1407,8 @@
       departure: depInput.value,
       returnDate: retInput.value,
       stages: editStages,
-      notes: loadJournal()
+      notes: loadJournal(),
+      info: loadInfo()
     });
   });
 
@@ -1127,7 +1423,7 @@
         e.target.value = '';
         return;
       }
-      if(!confirm("Load this backup? Trip details load into the editor (tap Save to apply them). Any journal notes in the file will be merged in immediately.")){
+      if(!confirm("Load this backup? Trip details load into the editor (tap Save to apply them). Any journal notes and quick-reference info in the file will be merged in immediately.")){
         e.target.value = '';
         return;
       }
@@ -1143,6 +1439,9 @@
       renderStageEditor();
       if(parsed.notes && typeof parsed.notes === 'object'){
         saveJournal({ ...loadJournal(), ...parsed.notes });
+      }
+      if(Array.isArray(parsed.info)){
+        saveInfo([...loadInfo(), ...parsed.info]);
       }
     }catch(err){
       alert("Could not read that file — please make sure it's a JSON backup exported from this app.");
