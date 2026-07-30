@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Fieldwork Tracker</title>
+<title>Holiday Tracker</title>
 
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#0E3E34">
@@ -16,6 +16,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=DM+Sans:wght@400;500;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+
 
 <style>
   :root{
@@ -237,6 +238,15 @@
     border-radius: 100px;
   }
 
+  .next-stage-note{
+    font-family:'DM Mono', monospace;
+    font-size:11.5px;
+    color: var(--text-faint);
+    text-align:center;
+    margin-top:12px;
+  }
+  .next-stage-note strong{ color: var(--text-soft); font-weight:500; }
+
   /* ---------- drawer (itinerary) ---------- */
   .drawer-overlay{
     position:fixed; inset:0;
@@ -269,11 +279,13 @@
 
   .drawer-tabs{
     display:flex;
+    flex-wrap:wrap;
     gap:8px;
     margin-bottom:18px;
   }
   .drawer-tab-btn{
-    flex:1;
+    flex:1 1 auto;
+    min-width:68px;
     padding:9px;
     background: var(--card-bg-2);
     border:none;
@@ -581,6 +593,27 @@
   .info-row__handle:active{ cursor:grabbing; }
   .info-row__handle svg{ width:16px; height:16px; }
 
+  .info-filter-row{
+    display:flex;
+    flex-wrap:wrap;
+    gap:6px;
+    margin-bottom:16px;
+  }
+  .info-filter-btn{
+    background: var(--card-bg-2);
+    border:none;
+    color: var(--text-soft);
+    font-family:'DM Mono', monospace;
+    font-size:10px;
+    letter-spacing:0.03em;
+    text-transform:uppercase;
+    padding:6px 11px;
+    border-radius:100px;
+    cursor:pointer;
+    transition: background .15s ease, color .15s ease;
+  }
+  .info-filter-btn.active{ background: var(--orange); color:#1D2A19; }
+
   .info-row__delete{
     border:none; background:none;
     color: var(--text-faint);
@@ -661,6 +694,7 @@
           <span class="stage-hero__badge" id="stageHeroBadge">—</span>
         </div>
       </div>
+      <div class="next-stage-note" id="nextStageNote" style="display:none;"></div>
     </div>
 
   </div>
@@ -685,6 +719,13 @@
       <div id="journalCalendar"></div>
     </div>
     <div id="tabInfo" style="display:none;">
+      <div class="info-filter-row" id="infoFilterRow">
+        <button class="info-filter-btn active" data-type="all" type="button">All</button>
+        <button class="info-filter-btn" data-type="contact" type="button">Contact</button>
+        <button class="info-filter-btn" data-type="transport" type="button">Transport</button>
+        <button class="info-filter-btn" data-type="accommodation" type="button">Accommodation</button>
+        <button class="info-filter-btn" data-type="other" type="button">Other</button>
+      </div>
       <div id="infoList"></div>
       <button class="add-stage-btn" id="addInfoItem" type="button">+ Add item</button>
     </div>
@@ -698,7 +739,20 @@
     <h2 id="noteDateTitle">3 August 2026</h2>
     <p class="hint" id="noteStageHint"></p>
     <div class="field">
-      <textarea id="noteText" rows="7" placeholder="What happened today?"></textarea>
+      <label for="noteHappened">What happened</label>
+      <textarea id="noteHappened" rows="5" placeholder="What happened today?"></textarea>
+    </div>
+    <div class="field">
+      <label for="notePlaces">Places visited</label>
+      <textarea id="notePlaces" rows="2" placeholder="e.g. village market, river crossing"></textarea>
+    </div>
+    <div class="field">
+      <label for="notePeople">People met</label>
+      <textarea id="notePeople" rows="2" placeholder="e.g. village elder, local guide"></textarea>
+    </div>
+    <div class="field">
+      <label for="noteFood">Food eaten</label>
+      <textarea id="noteFood" rows="2" placeholder="e.g. hotpot, roadside noodles"></textarea>
     </div>
     <div class="modal-actions">
       <button class="btn btn-secondary" id="deleteNote" type="button">Delete</button>
@@ -790,12 +844,25 @@
   }
   function saveData(data){ localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); }
 
+  function normalizeJournalEntry(entry){
+    if(typeof entry === 'string') return { happened: entry, places: '', people: '', food: '' };
+    if(entry && typeof entry === 'object') return {
+      happened: entry.happened || '',
+      places: entry.places || '',
+      people: entry.people || '',
+      food: entry.food || ''
+    };
+    return { happened: '', places: '', people: '', food: '' };
+  }
   function loadJournal(){
     try{
       const raw = localStorage.getItem(JOURNAL_KEY);
       if(!raw) return {};
       const parsed = JSON.parse(raw);
-      return (parsed && typeof parsed === 'object') ? parsed : {};
+      if(!parsed || typeof parsed !== 'object') return {};
+      const normalized = {};
+      Object.keys(parsed).forEach(k => { normalized[k] = normalizeJournalEntry(parsed[k]); });
+      return normalized;
     }catch(e){ return {}; }
   }
   function saveJournal(notes){ localStorage.setItem(JOURNAL_KEY, JSON.stringify(notes)); }
@@ -901,6 +968,23 @@
       document.getElementById('stageHeroBadge').textContent = badge;
     }
 
+    // next-stage countdown
+    const nextStageEl = document.getElementById('nextStageNote');
+    let nextStage = null;
+    if(current && !beforeTrip && !afterTrip){
+      const currentIdx = stages.indexOf(current);
+      if(currentIdx > -1 && currentIdx < stages.length - 1) nextStage = stages[currentIdx + 1];
+    }
+    if(nextStage){
+      const daysUntil = dayCount(today, parseDate(nextStage.start));
+      nextStageEl.innerHTML = daysUntil <= 0
+        ? `Next: <strong>${nextStage.city}</strong> starts today`
+        : `Next: <strong>${nextStage.city}</strong> in ${daysUntil} day${daysUntil === 1 ? '' : 's'}`;
+      nextStageEl.style.display = '';
+    } else {
+      nextStageEl.style.display = 'none';
+    }
+
     // drawer list
     const list = document.getElementById('drawerList');
     list.innerHTML = '';
@@ -1004,7 +1088,8 @@
         let cls = 'cal-day';
         if(dateObj < dep || dateObj > ret) cls += ' is-outside-trip';
         if(dateObj.getTime() === today.getTime()) cls += ' is-today';
-        if(journal[dStr] && journal[dStr].trim()) cls += ' has-note';
+        const entry = journal[dStr];
+        if(entry && (entry.happened.trim() || entry.places.trim() || entry.people.trim() || entry.food.trim())) cls += ' has-note';
         cell.className = cls;
         cell.textContent = String(d);
         cell.addEventListener('click', () => openNoteModal(dStr));
@@ -1020,7 +1105,10 @@
   // ---------- journal note modal ----------
   let activeNoteDate = null;
   const noteOverlay = document.getElementById('noteOverlay');
-  const noteText = document.getElementById('noteText');
+  const noteHappened = document.getElementById('noteHappened');
+  const notePlaces = document.getElementById('notePlaces');
+  const notePeople = document.getElementById('notePeople');
+  const noteFood = document.getElementById('noteFood');
 
   function openNoteModal(dateStr){
     activeNoteDate = dateStr;
@@ -1041,7 +1129,11 @@
       hint = 'Outside trip dates';
     }
     document.getElementById('noteStageHint').textContent = hint;
-    noteText.value = journal[dateStr] || '';
+    const entry = journal[dateStr] || { happened: '', places: '', people: '', food: '' };
+    noteHappened.value = entry.happened;
+    notePlaces.value = entry.places;
+    notePeople.value = entry.people;
+    noteFood.value = entry.food;
     noteOverlay.classList.add('open');
   }
   function closeNoteModal(){ noteOverlay.classList.remove('open'); activeNoteDate = null; }
@@ -1052,8 +1144,15 @@
   document.getElementById('saveNote').addEventListener('click', () => {
     if(!activeNoteDate) return;
     const journal = loadJournal();
-    const val = noteText.value.trim();
-    if(val){ journal[activeNoteDate] = val; } else { delete journal[activeNoteDate]; }
+    const happened = noteHappened.value.trim();
+    const places = notePlaces.value.trim();
+    const people = notePeople.value.trim();
+    const food = noteFood.value.trim();
+    if(happened || places || people || food){
+      journal[activeNoteDate] = { happened, places, people, food };
+    } else {
+      delete journal[activeNoteDate];
+    }
     saveJournal(journal);
     closeNoteModal();
     renderJournalCalendar();
@@ -1070,6 +1169,7 @@
 
   // ---------- quick-reference info tab ----------
   let infoItems = [];
+  let activeInfoFilter = 'all';
 
   const INFO_TYPE_META = {
     contact:       { label: 'Contact',       title: 'Name',                line1: 'Phone / email',       line2: 'Relationship / notes' },
@@ -1087,7 +1187,7 @@
 
   const GRIP_ICON_SVG = `<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="9" cy="6" r="1.5"/><circle cx="15" cy="6" r="1.5"/><circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="9" cy="18" r="1.5"/><circle cx="15" cy="18" r="1.5"/></svg>`;
 
-  function buildInfoRow(item){
+  function buildInfoRow(item, dragDisabled){
     const row = document.createElement('div');
     row.className = 'info-row';
     row._infoItem = item;
@@ -1095,7 +1195,7 @@
       `<option value="${t}" ${item.type === t ? 'selected' : ''}>${INFO_TYPE_META[t].label}</option>`
     ).join('');
     row.innerHTML = `
-      <div class="info-row__handle" aria-label="Drag to reorder">${GRIP_ICON_SVG}</div>
+      <div class="info-row__handle" aria-label="Drag to reorder" style="${dragDisabled ? 'opacity:.25;cursor:default;' : ''}">${GRIP_ICON_SVG}</div>
       <div class="info-row__fields">
         <select class="i-type">${typeOptions}</select>
         <div class="info-field">
@@ -1119,6 +1219,7 @@
       item.type = e.target.value;
       applyInfoFieldMeta(row, item.type);
       saveInfo(infoItems);
+      if(activeInfoFilter !== 'all') renderInfoList();
     });
     row.querySelector('.i-title').addEventListener('input', (e) => { item.title = e.target.value; saveInfo(infoItems); });
     row.querySelector('.i-line1').addEventListener('input', (e) => { item.line1 = e.target.value; saveInfo(infoItems); });
@@ -1130,7 +1231,9 @@
       renderInfoList();
     });
 
-    wireInfoDrag(row, row.querySelector('.info-row__handle'));
+    if(!dragDisabled){
+      wireInfoDrag(row, row.querySelector('.info-row__handle'));
+    }
     return row;
   }
 
@@ -1207,18 +1310,33 @@
     infoItems = loadInfo();
     const container = document.getElementById('infoList');
     container.innerHTML = '';
-    if(infoItems.length === 0){
+    const isFiltered = activeInfoFilter !== 'all';
+    const filtered = isFiltered ? infoItems.filter(i => i.type === activeInfoFilter) : infoItems;
+
+    if(filtered.length === 0){
       const empty = document.createElement('p');
       empty.className = 'hint';
-      empty.textContent = 'Nothing saved yet — add flight numbers, accommodation, emergency contacts, anything worth having on hand.';
+      empty.textContent = isFiltered
+        ? `No ${(INFO_TYPE_META[activeInfoFilter] || {}).label?.toLowerCase() || activeInfoFilter} items yet.`
+        : 'Nothing saved yet — add flight numbers, accommodation, emergency contacts, anything worth having on hand.';
       container.appendChild(empty);
     } else {
-      infoItems.forEach(item => container.appendChild(buildInfoRow(item)));
+      filtered.forEach(item => container.appendChild(buildInfoRow(item, isFiltered)));
     }
   }
 
+  document.querySelectorAll('.info-filter-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      activeInfoFilter = btn.dataset.type;
+      document.querySelectorAll('.info-filter-btn').forEach(b => b.classList.toggle('active', b === btn));
+      renderInfoList();
+    });
+  });
+
+
   document.getElementById('addInfoItem').addEventListener('click', () => {
-    infoItems.push({ type: 'other', title: '', line1: '', line2: '' });
+    const newType = activeInfoFilter !== 'all' ? activeInfoFilter : 'other';
+    infoItems.push({ type: newType, title: '', line1: '', line2: '' });
     saveInfo(infoItems);
     renderInfoList();
     const titleInputs = document.querySelectorAll('#infoList .i-title');
