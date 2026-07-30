@@ -634,6 +634,40 @@
     margin-top: 4px;
   }
   .add-stage-btn:hover{ color: var(--text); border-color: var(--orange); }
+
+  .note-photo-strip{
+    display:flex;
+    flex-wrap:wrap;
+    gap:8px;
+  }
+  .note-photo-strip:empty{ display:none; }
+  .note-photo-thumb{
+    position:relative;
+    width:74px; height:74px;
+    border-radius:10px;
+    overflow:hidden;
+    background: var(--card-bg);
+  }
+  .note-photo-thumb img{
+    width:100%; height:100%;
+    object-fit:cover;
+    display:block;
+  }
+  .note-photo-thumb__delete{
+    position:absolute;
+    top:3px; right:3px;
+    width:20px; height:20px;
+    border-radius:50%;
+    border:none;
+    background: rgba(5,32,27,0.75);
+    color: var(--text);
+    font-size:11px;
+    line-height:1;
+    cursor:pointer;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+  }
 </style>
 </head>
 <body>
@@ -754,6 +788,14 @@
       <label for="noteFood">Food eaten</label>
       <textarea id="noteFood" rows="2" placeholder="e.g. hotpot, roadside noodles"></textarea>
     </div>
+    <div class="field">
+      <label>Photos</label>
+      <div class="note-photo-strip" id="notePhotoStrip"></div>
+      <label class="add-stage-btn" id="addPhotoBtn" style="display:block; text-align:center; margin-top:8px;">
+        + Add photo
+        <input type="file" accept="image/*" id="notePhotoInput" style="display:none;">
+      </label>
+    </div>
     <div class="modal-actions">
       <button class="btn btn-secondary" id="deleteNote" type="button">Delete</button>
       <button class="btn btn-primary" id="saveNote" type="button">Save</button>
@@ -810,6 +852,8 @@
   const STORAGE_KEY = 'holidayTrackerData';
   const JOURNAL_KEY = 'holidayTrackerJournal';
   const INFO_KEY = 'holidayTrackerInfo';
+  const PHOTO_DB_NAME = 'holidayTrackerPhotoDB';
+  const PHOTO_STORE_NAME = 'journalPhotos';
 
   const DEFAULTS = {
     route: "Yixiao's Field Work",
@@ -866,6 +910,124 @@
     }catch(e){ return {}; }
   }
   function saveJournal(notes){ localStorage.setItem(JOURNAL_KEY, JSON.stringify(notes)); }
+
+  // ---------- journal photo storage (IndexedDB) ----------
+  let _photoDbPromise = null;
+  function openPhotoDB(){
+    if(_photoDbPromise) return _photoDbPromise;
+    _photoDbPromise = new Promise((resolve, reject) => {
+      const req = indexedDB.open(PHOTO_DB_NAME, 1);
+      req.onupgradeneeded = () => {
+        const db = req.result;
+        if(!db.objectStoreNames.contains(PHOTO_STORE_NAME)){
+          const store = db.createObjectStore(PHOTO_STORE_NAME, { keyPath: 'id', autoIncrement: true });
+          store.createIndex('date', 'date', { unique: false });
+        }
+      };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+    return _photoDbPromise;
+  }
+
+  async function addJournalPhoto(dateStr, blob){
+    const db = await openPhotoDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(PHOTO_STORE_NAME, 'readwrite');
+      tx.objectStore(PHOTO_STORE_NAME).add({ date: dateStr, blob, addedAt: Date.now() });
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  }
+
+  async function getJournalPhotosForDate(dateStr){
+    const db = await openPhotoDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(PHOTO_STORE_NAME, 'readonly');
+      const idx = tx.objectStore(PHOTO_STORE_NAME).index('date');
+      const req = idx.getAll(dateStr);
+      req.onsuccess = () => resolve(req.result || []);
+      req.onerror = () => reject(req.error);
+    });
+  }
+
+  async function deleteJournalPhoto(id){
+    const db = await openPhotoDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(PHOTO_STORE_NAME, 'readwrite');
+      tx.objectStore(PHOTO_STORE_NAME).delete(id);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  }
+
+  async function getJournalPhotoDateSet(){
+    const db = await openPhotoDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(PHOTO_STORE_NAME, 'readonly');
+      const idx = tx.objectStore(PHOTO_STORE_NAME).index('date');
+      tx.onerror = () => reject(tx.error);
+      const dates = new Set();
+      const cursorReq = idx.openKeyCursor();
+      cursorReq.onsuccess = (e) => {
+        const cursor = e.target.result;
+        if(cursor){
+          dates.add(cursor.key);
+          cursor.continue();
+        } else {
+          resolve(dates);
+        }
+      };
+      cursorReq.onerror = () => reject(cursorReq.error);
+    });
+  }
+
+  function resizeImageToBlob(file, maxDim, quality){
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const img = new Image();
+        img.onload = () => {
+          let w = img.width, h = img.height;
+          if(w > maxDim || h > maxDim){
+            if(w > h){ h = Math.round(h * maxDim / w); w = maxDim; }
+            else { w = Math.round(w * maxDim / h); h = maxDim; }
+          }
+          const canvas = document.createElement('canvas');
+          canvas.width = w; canvas.height = h;
+          canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+          canvas.toBlob((blob) => blob ? resolve(blob) : reject(new Error('toBlob failed')), 'image/jpeg', quality);
+        };
+        img.onerror = reject;
+        img.src = e.target.result;
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  }
+
+  function blobToDataURL(blob){
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+  }
+  async function dataURLToBlob(dataURL){
+    const res = await fetch(dataURL);
+    return res.blob();
+  }
+
+  async function getAllJournalPhotos(){
+    const db = await openPhotoDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(PHOTO_STORE_NAME, 'readonly');
+      const req = tx.objectStore(PHOTO_STORE_NAME).getAll();
+      req.onsuccess = () => resolve(req.result || []);
+      req.onerror = () => reject(req.error);
+    });
+  }
 
   const INFO_TYPES = ['contact', 'transport', 'accommodation', 'other'];
   function normalizeInfoItem(item){
@@ -1040,12 +1202,14 @@
     return stages.find(s => dateObj >= parseDate(s.start) && dateObj <= parseDate(s.end));
   }
 
-  function renderJournalCalendar(){
+  async function renderJournalCalendar(){
     const data = loadData();
     const journal = loadJournal();
     const dep = parseDate(data.departure);
     const ret = parseDate(data.returnDate);
     const today = todayAtMidnight();
+    let photoDates;
+    try{ photoDates = await getJournalPhotoDateSet(); }catch(err){ photoDates = new Set(); }
 
     const container = document.getElementById('journalCalendar');
     container.innerHTML = '';
@@ -1089,7 +1253,8 @@
         if(dateObj < dep || dateObj > ret) cls += ' is-outside-trip';
         if(dateObj.getTime() === today.getTime()) cls += ' is-today';
         const entry = journal[dStr];
-        if(entry && (entry.happened.trim() || entry.places.trim() || entry.people.trim() || entry.food.trim())) cls += ' has-note';
+        const hasText = entry && (entry.happened.trim() || entry.places.trim() || entry.people.trim() || entry.food.trim());
+        if(hasText || photoDates.has(dStr)) cls += ' has-note';
         cell.className = cls;
         cell.textContent = String(d);
         cell.addEventListener('click', () => openNoteModal(dStr));
@@ -1135,11 +1300,51 @@
     notePeople.value = entry.people;
     noteFood.value = entry.food;
     noteOverlay.classList.add('open');
+    renderNotePhotos(dateStr);
   }
   function closeNoteModal(){ noteOverlay.classList.remove('open'); activeNoteDate = null; }
 
   document.getElementById('closeNote').addEventListener('click', closeNoteModal);
   noteOverlay.addEventListener('click', (e) => { if(e.target === noteOverlay) closeNoteModal(); });
+
+  let _notePhotoObjectUrls = [];
+  async function renderNotePhotos(dateStr){
+    const strip = document.getElementById('notePhotoStrip');
+    _notePhotoObjectUrls.forEach(url => URL.revokeObjectURL(url));
+    _notePhotoObjectUrls = [];
+    strip.innerHTML = '';
+    let photos;
+    try{
+      photos = await getJournalPhotosForDate(dateStr);
+    }catch(err){
+      return;
+    }
+    photos.forEach(photo => {
+      const url = URL.createObjectURL(photo.blob);
+      _notePhotoObjectUrls.push(url);
+      const thumb = document.createElement('div');
+      thumb.className = 'note-photo-thumb';
+      thumb.innerHTML = `<img src="${url}" alt=""><button type="button" class="note-photo-thumb__delete" aria-label="Remove photo">✕</button>`;
+      thumb.querySelector('.note-photo-thumb__delete').addEventListener('click', async () => {
+        await deleteJournalPhoto(photo.id);
+        renderNotePhotos(dateStr);
+      });
+      strip.appendChild(thumb);
+    });
+  }
+
+  document.getElementById('notePhotoInput').addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if(!file || !activeNoteDate) { e.target.value = ''; return; }
+    try{
+      const blob = await resizeImageToBlob(file, 2000, 0.85);
+      await addJournalPhoto(activeNoteDate, blob);
+      renderNotePhotos(activeNoteDate);
+    }catch(err){
+      alert('Could not add that photo — please try another file.');
+    }
+    e.target.value = '';
+  });
 
   document.getElementById('saveNote').addEventListener('click', () => {
     if(!activeNoteDate) return;
@@ -1510,24 +1715,48 @@
     render();
   });
 
-  document.getElementById('resetDefaults').addEventListener('click', () => {
-    if(confirm('Reset to the default trip? This clears your edits. A backup of your current data will download first — check your Downloads folder if you ever need to undo this.')){
-      downloadJSON({ ...loadData(), notes: loadJournal(), info: loadInfo() }, 'holiday-tracker-before-reset');
+  async function buildPhotosExportArray(){
+    const photos = await getAllJournalPhotos();
+    const result = [];
+    for(const p of photos){
+      try{
+        const data = await blobToDataURL(p.blob);
+        result.push({ date: p.date, data });
+      }catch(err){ /* skip unreadable photo */ }
+    }
+    return result;
+  }
+
+  document.getElementById('resetDefaults').addEventListener('click', async () => {
+    if(confirm('Reset to the default trip? This clears your edits. A backup of your current data (including journal photos) will download first — check your Downloads folder if you ever need to undo this.')){
+      const photos = await buildPhotosExportArray();
+      downloadJSON({ ...loadData(), notes: loadJournal(), info: loadInfo(), photos }, 'holiday-tracker-before-reset');
       saveData(structuredClone(DEFAULTS));
       openModal();
       render();
     }
   });
 
-  document.getElementById('exportData').addEventListener('click', () => {
-    downloadJSON({
-      route: routeInput.value.trim() || DEFAULTS.route,
-      departure: depInput.value,
-      returnDate: retInput.value,
-      stages: editStages,
-      notes: loadJournal(),
-      info: loadInfo()
-    });
+  document.getElementById('exportData').addEventListener('click', async (e) => {
+    const btn = e.currentTarget;
+    const originalText = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = 'Exporting…';
+    try{
+      const photos = await buildPhotosExportArray();
+      downloadJSON({
+        route: routeInput.value.trim() || DEFAULTS.route,
+        departure: depInput.value,
+        returnDate: retInput.value,
+        stages: editStages,
+        notes: loadJournal(),
+        info: loadInfo(),
+        photos
+      });
+    } finally {
+      btn.disabled = false;
+      btn.textContent = originalText;
+    }
   });
 
   document.getElementById('importInput').addEventListener('change', async (e) => {
@@ -1541,7 +1770,9 @@
         e.target.value = '';
         return;
       }
-      if(!confirm("Load this backup? Trip details load into the editor (tap Save to apply them). Any journal notes and quick-reference info in the file will be merged in immediately.")){
+      const photoCount = Array.isArray(parsed.photos) ? parsed.photos.length : 0;
+      const photoNote = photoCount ? ` and ${photoCount} journal photo${photoCount === 1 ? '' : 's'}` : '';
+      if(!confirm(`Load this backup? Trip details load into the editor (tap Save to apply them). Any journal notes, quick-reference info,${photoNote} in the file will be merged in immediately.`)){
         e.target.value = '';
         return;
       }
@@ -1560,6 +1791,15 @@
       }
       if(Array.isArray(parsed.info)){
         saveInfo([...loadInfo(), ...parsed.info]);
+      }
+      if(photoCount){
+        for(const p of parsed.photos){
+          try{
+            const blob = await dataURLToBlob(p.data);
+            await addJournalPhoto(p.date, blob);
+          }catch(err){ /* skip unreadable entry, continue with the rest */ }
+        }
+        renderJournalCalendar();
       }
     }catch(err){
       alert("Could not read that file — please make sure it's a JSON backup exported from this app.");
