@@ -348,6 +348,9 @@
     border-radius:50%;
     background: var(--orange);
   }
+  .cal-day.has-photo{
+    background: rgba(172,136,80,0.32);
+  }
 
   .field textarea{
     width:100%;
@@ -359,7 +362,8 @@
     border:1px solid rgba(244,241,234,0.18);
     background: var(--card-bg-2);
     color: var(--text);
-    resize:vertical;
+    resize:none;
+    overflow:hidden;
   }
 
   .drawer-item{
@@ -422,6 +426,7 @@
     position:relative;
   }
   .overlay.open .modal{ transform: translateY(0); }
+  .modal--tall{ max-height: 96dvh; }
 
   .modal h2{
     font-family:'Space Grotesk', sans-serif;
@@ -435,6 +440,60 @@
   .modal p.hint{
     font-family:'DM Sans'; font-size:12.5px;
     color: var(--text-soft); margin:0 0 18px;
+  }
+
+  .stage-detail-photo{
+    width:100%;
+    height:180px;
+    border-radius:16px;
+    background-size:cover;
+    background-position:center;
+    background-color: var(--card-bg-2);
+    margin-bottom:16px;
+  }
+  .stage-detail-description{
+    font-family:'DM Sans';
+    font-size:13.5px;
+    line-height:1.6;
+    color: var(--text-soft);
+    margin:16px 0 4px;
+    white-space:pre-wrap;
+  }
+  .stage-detail-photos{
+    display:flex;
+    flex-wrap:wrap;
+    gap:8px;
+  }
+  .stage-detail-photos img{
+    width:72px; height:72px;
+    border-radius:10px;
+    object-fit:cover;
+    cursor:pointer;
+  }
+  .stage-journal-row{
+    display:flex;
+    align-items:center;
+    gap:12px;
+    padding:10px 0;
+    border-bottom:1px solid rgba(244,241,234,0.08);
+    cursor:pointer;
+  }
+  .stage-journal-row:last-child{ border-bottom:none; }
+  .stage-journal-row__date{
+    font-family:'DM Mono', monospace;
+    font-size:11px;
+    color: var(--text-faint);
+    flex-shrink:0;
+  }
+  .stage-journal-row__preview{
+    font-family:'DM Sans';
+    font-size:12.5px;
+    color: var(--text-soft);
+    overflow:hidden;
+    text-overflow:ellipsis;
+    white-space:nowrap;
+    flex:1;
+    min-width:0;
   }
 
   .field{ margin-bottom:14px; }
@@ -522,6 +581,19 @@
   }
   .stage-row__dates{ display:flex; gap:6px; }
   .stage-row__dates input{ flex:1; }
+  .stage-row__fields textarea.s-description{
+    width:100%;
+    font-family:'DM Sans';
+    font-size:12px;
+    line-height:1.5;
+    padding:7px 9px;
+    border-radius:8px;
+    border:1px solid rgba(244,241,234,0.16);
+    background: var(--card-bg);
+    color: var(--text);
+    resize:none;
+    overflow:hidden;
+  }
 
   .stage-row__delete{
     border:none; background:none;
@@ -652,6 +724,41 @@
     width:100%; height:100%;
     object-fit:cover;
     display:block;
+    cursor:pointer;
+  }
+
+  .lightbox-overlay{
+    position:fixed; inset:0;
+    background: rgba(2,10,8,0.88);
+    z-index:70;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    padding:20px;
+    opacity:0;
+    pointer-events:none;
+    transition:opacity .2s ease;
+  }
+  .lightbox-overlay.open{ opacity:1; pointer-events:auto; }
+  .lightbox-overlay img{
+    max-width:100%;
+    max-height:100%;
+    border-radius:12px;
+    display:block;
+  }
+  .lightbox-close{
+    position:fixed;
+    top:18px; right:18px;
+    width:40px; height:40px;
+    border-radius:50%;
+    background: rgba(20,73,61,0.9);
+    border:none;
+    color: var(--text);
+    font-size:18px;
+    cursor:pointer;
+    display:flex;
+    align-items:center;
+    justify-content:center;
   }
   .note-photo-thumb__delete{
     position:absolute;
@@ -768,7 +875,7 @@
 
 <!-- ---------- journal note modal ---------- -->
 <div class="overlay" id="noteOverlay">
-  <div class="modal">
+  <div class="modal modal--tall">
     <button class="modal-close" id="closeNote" aria-label="Close">✕</button>
     <h2 id="noteDateTitle">3 August 2026</h2>
     <p class="hint" id="noteStageHint"></p>
@@ -793,12 +900,38 @@
       <div class="note-photo-strip" id="notePhotoStrip"></div>
       <label class="add-stage-btn" id="addPhotoBtn" style="display:block; text-align:center; margin-top:8px;">
         + Add photo
-        <input type="file" accept="image/*" id="notePhotoInput" style="display:none;">
+        <input type="file" accept="image/*" id="notePhotoInput" multiple style="display:none;">
       </label>
     </div>
     <div class="modal-actions">
       <button class="btn btn-secondary" id="deleteNote" type="button">Delete</button>
       <button class="btn btn-primary" id="saveNote" type="button">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- ---------- photo lightbox ---------- -->
+<div class="lightbox-overlay" id="photoLightbox">
+  <button class="lightbox-close" id="closePhotoLightbox" aria-label="Close">✕</button>
+  <img id="photoLightboxImg" src="" alt="">
+</div>
+
+<!-- ---------- stage detail modal ---------- -->
+<div class="overlay" id="stageDetailOverlay">
+  <div class="modal">
+    <button class="modal-close" id="closeStageDetail" aria-label="Close">✕</button>
+    <div class="stage-detail-photo" id="stageDetailPhoto"></div>
+    <h2 id="stageDetailCity">City</h2>
+    <p class="hint" id="stageDetailMeta"></p>
+    <span class="stage-hero__badge" id="stageDetailBadge"></span>
+    <p class="stage-detail-description" id="stageDetailDescription"></p>
+    <div id="stageDetailPhotosSection" style="display:none;">
+      <h3>Photos from this stage</h3>
+      <div class="stage-detail-photos" id="stageDetailPhotosStrip"></div>
+    </div>
+    <div id="stageDetailJournalSection" style="display:none;">
+      <h3>Journal entries</h3>
+      <div id="stageDetailJournalList"></div>
     </div>
   </div>
 </div>
@@ -860,10 +993,10 @@
     departure: "2026-07-31",
     returnDate: "2026-09-24",
     stages: [
-      { city: "Guanba",   start: "2026-07-31", end: "2026-08-13", image: "" },
-      { city: "Xinyi",    start: "2026-08-14", end: "2026-08-27", image: "" },
-      { city: "Fushou",   start: "2026-08-28", end: "2026-09-10", image: "" },
-      { city: "Laohegou", start: "2026-09-11", end: "2026-09-24", image: "" }
+      { city: "Guanba",   start: "2026-07-31", end: "2026-08-13", image: "", description: "" },
+      { city: "Xinyi",    start: "2026-08-14", end: "2026-08-27", image: "", description: "" },
+      { city: "Fushou",   start: "2026-08-28", end: "2026-09-10", image: "", description: "" },
+      { city: "Laohegou", start: "2026-09-11", end: "2026-09-24", image: "", description: "" }
     ]
   };
 
@@ -1157,6 +1290,7 @@
       let status = isCurrent ? 'Current' : (isPast ? 'Completed' : 'Upcoming');
       const item = document.createElement('div');
       item.className = 'drawer-item' + (isCurrent ? ' is-current' : '') + (isPast ? ' is-past' : '');
+      item.style.cursor = 'pointer';
       item.innerHTML = `
         <img src="${imgUrl(s.image, s.city, 160, 160)}" alt="${s.city}" loading="lazy">
         <div>
@@ -1165,9 +1299,102 @@
           <div class="drawer-item__status">${status}</div>
         </div>
       `;
+      item.addEventListener('click', () => openStageDetail(s));
       list.appendChild(item);
     });
   }
+
+  // ---------- stage detail modal ----------
+  const stageDetailOverlay = document.getElementById('stageDetailOverlay');
+  let _stageDetailPhotoUrls = [];
+  async function openStageDetail(stage){
+    const today = todayAtMidnight();
+    const s0 = parseDate(stage.start), s1 = parseDate(stage.end);
+    const isCurrent = today >= s0 && today <= s1;
+    const isPast = today > s1;
+    const totalDays = dayCount(s0, s1) + 1;
+
+    document.getElementById('stageDetailPhoto').style.backgroundImage = `url(${imgUrl(stage.image, stage.city, 640, 420)})`;
+    document.getElementById('stageDetailCity').textContent = stage.city;
+    document.getElementById('stageDetailMeta').textContent = `${fmtShort(stage.start)} – ${fmtShort(stage.end)} · ${totalDays} day${totalDays === 1 ? '' : 's'}`;
+
+    let badge;
+    if(isCurrent){
+      const dayNum = Math.max(1, Math.min(dayCount(s0, today) + 1, totalDays));
+      badge = `Day ${dayNum} of ${totalDays}`;
+    } else {
+      badge = isPast ? 'Completed' : 'Upcoming';
+    }
+    document.getElementById('stageDetailBadge').textContent = badge;
+
+    const descEl = document.getElementById('stageDetailDescription');
+    if(stage.description && stage.description.trim()){
+      descEl.textContent = stage.description;
+      descEl.style.fontStyle = 'normal';
+    } else {
+      descEl.textContent = 'No description added yet.';
+      descEl.style.fontStyle = 'italic';
+    }
+
+    stageDetailOverlay.classList.add('open');
+
+    // build the list of dates this stage spans
+    const stageDates = [];
+    let cursor = new Date(s0);
+    while(cursor <= s1){
+      stageDates.push(isoDate(cursor));
+      cursor = new Date(cursor.getFullYear(), cursor.getMonth(), cursor.getDate() + 1);
+    }
+
+    // journal entries within this stage
+    const journal = loadJournal();
+    const journalListEl = document.getElementById('stageDetailJournalList');
+    journalListEl.innerHTML = '';
+    const entryDates = stageDates.filter(d => {
+      const e = journal[d];
+      return e && (e.happened.trim() || e.places.trim() || e.people.trim() || e.food.trim());
+    });
+    document.getElementById('stageDetailJournalSection').style.display = entryDates.length ? '' : 'none';
+    entryDates.forEach(d => {
+      const e = journal[d];
+      const preview = e.happened.trim() || e.places.trim() || e.people.trim() || e.food.trim();
+      const shortPreview = preview.length > 60 ? preview.slice(0, 60) + '…' : preview;
+      const row = document.createElement('div');
+      row.className = 'stage-journal-row';
+      row.innerHTML = `<div class="stage-journal-row__date">${fmtShort(d)}</div><div class="stage-journal-row__preview">${shortPreview}</div>`;
+      row.addEventListener('click', () => {
+        closeStageDetail();
+        openNoteModal(d);
+      });
+      journalListEl.appendChild(row);
+    });
+
+    // photos taken during this stage
+    const photosStrip = document.getElementById('stageDetailPhotosStrip');
+    photosStrip.innerHTML = '';
+    _stageDetailPhotoUrls.forEach(url => URL.revokeObjectURL(url));
+    _stageDetailPhotoUrls = [];
+    let stagePhotos = [];
+    for(const d of stageDates){
+      try{
+        const photos = await getJournalPhotosForDate(d);
+        stagePhotos = stagePhotos.concat(photos);
+      }catch(err){ /* skip */ }
+    }
+    document.getElementById('stageDetailPhotosSection').style.display = stagePhotos.length ? '' : 'none';
+    stagePhotos.forEach(photo => {
+      const url = URL.createObjectURL(photo.blob);
+      _stageDetailPhotoUrls.push(url);
+      const img = document.createElement('img');
+      img.src = url;
+      img.alt = '';
+      img.addEventListener('click', () => openPhotoLightbox(url));
+      photosStrip.appendChild(img);
+    });
+  }
+  function closeStageDetail(){ stageDetailOverlay.classList.remove('open'); }
+  document.getElementById('closeStageDetail').addEventListener('click', closeStageDetail);
+  stageDetailOverlay.addEventListener('click', (e) => { if(e.target === stageDetailOverlay) closeStageDetail(); });
 
   // ---------- drawer wiring ----------
   const drawerOverlay = document.getElementById('drawerOverlay');
@@ -1254,7 +1481,8 @@
         if(dateObj.getTime() === today.getTime()) cls += ' is-today';
         const entry = journal[dStr];
         const hasText = entry && (entry.happened.trim() || entry.places.trim() || entry.people.trim() || entry.food.trim());
-        if(hasText || photoDates.has(dStr)) cls += ' has-note';
+        if(hasText) cls += ' has-note';
+        if(photoDates.has(dStr)) cls += ' has-photo';
         cell.className = cls;
         cell.textContent = String(d);
         cell.addEventListener('click', () => openNoteModal(dStr));
@@ -1274,6 +1502,13 @@
   const notePlaces = document.getElementById('notePlaces');
   const notePeople = document.getElementById('notePeople');
   const noteFood = document.getElementById('noteFood');
+  const noteTextFields = [noteHappened, notePlaces, notePeople, noteFood];
+
+  function autoGrowTextarea(el){
+    el.style.height = 'auto';
+    el.style.height = el.scrollHeight + 'px';
+  }
+  noteTextFields.forEach(el => el.addEventListener('input', () => autoGrowTextarea(el)));
 
   function openNoteModal(dateStr){
     activeNoteDate = dateStr;
@@ -1301,6 +1536,7 @@
     noteFood.value = entry.food;
     noteOverlay.classList.add('open');
     renderNotePhotos(dateStr);
+    setTimeout(() => noteTextFields.forEach(autoGrowTextarea), 0);
   }
   function closeNoteModal(){ noteOverlay.classList.remove('open'); activeNoteDate = null; }
 
@@ -1325,24 +1561,45 @@
       const thumb = document.createElement('div');
       thumb.className = 'note-photo-thumb';
       thumb.innerHTML = `<img src="${url}" alt=""><button type="button" class="note-photo-thumb__delete" aria-label="Remove photo">✕</button>`;
+      thumb.querySelector('img').addEventListener('click', () => openPhotoLightbox(url));
       thumb.querySelector('.note-photo-thumb__delete').addEventListener('click', async () => {
+        if(!confirm('Remove this photo? This cannot be undone.')) return;
         await deleteJournalPhoto(photo.id);
         renderNotePhotos(dateStr);
+        renderJournalCalendar();
       });
       strip.appendChild(thumb);
     });
   }
 
+  const photoLightbox = document.getElementById('photoLightbox');
+  const photoLightboxImg = document.getElementById('photoLightboxImg');
+  function openPhotoLightbox(url){
+    photoLightboxImg.src = url;
+    photoLightbox.classList.add('open');
+  }
+  function closePhotoLightbox(){
+    photoLightbox.classList.remove('open');
+    photoLightboxImg.src = '';
+  }
+  document.getElementById('closePhotoLightbox').addEventListener('click', closePhotoLightbox);
+  photoLightbox.addEventListener('click', (e) => { if(e.target === photoLightbox) closePhotoLightbox(); });
+
   document.getElementById('notePhotoInput').addEventListener('change', async (e) => {
-    const file = e.target.files[0];
-    if(!file || !activeNoteDate) { e.target.value = ''; return; }
-    try{
-      const blob = await resizeImageToBlob(file, 2000, 0.85);
-      await addJournalPhoto(activeNoteDate, blob);
-      renderNotePhotos(activeNoteDate);
-    }catch(err){
-      alert('Could not add that photo — please try another file.');
+    const files = Array.from(e.target.files || []);
+    if(!files.length || !activeNoteDate) { e.target.value = ''; return; }
+    let failCount = 0;
+    for(const file of files){
+      try{
+        const blob = await resizeImageToBlob(file, 2000, 0.85);
+        await addJournalPhoto(activeNoteDate, blob);
+      }catch(err){
+        failCount++;
+      }
     }
+    renderNotePhotos(activeNoteDate);
+    renderJournalCalendar();
+    if(failCount) alert(`${failCount} photo${failCount === 1 ? '' : 's'} couldn't be added — the rest were saved fine.`);
     e.target.value = '';
   });
 
@@ -1365,6 +1622,7 @@
 
   document.getElementById('deleteNote').addEventListener('click', () => {
     if(!activeNoteDate) return;
+    if(!confirm('Delete this journal entry? This only removes the text — photos for this day are kept separately and won\'t be affected.')) return;
     const journal = loadJournal();
     delete journal[activeNoteDate];
     saveJournal(journal);
@@ -1629,6 +1887,7 @@
           <input type="date" class="s-start" value="${stage.start}">
           <input type="date" class="s-end" value="${stage.end}">
         </div>
+        <textarea class="s-description" rows="2" placeholder="Description (optional)">${(stage.description || '').replace(/</g,'&lt;')}</textarea>
       </div>
       <button type="button" class="stage-row__delete" aria-label="Remove stage">✕</button>
     `;
@@ -1640,6 +1899,10 @@
       renderStageEditor();
     });
     row.querySelector('.s-end').addEventListener('change', (e) => { stage.end = e.target.value; });
+    row.querySelector('.s-description').addEventListener('input', (e) => {
+      stage.description = e.target.value;
+      autoGrowTextarea(e.target);
+    });
 
     row.querySelector('.s-photo').addEventListener('change', async (e) => {
       const file = e.target.files[0];
@@ -1665,6 +1928,9 @@
   function renderStageEditor(){
     stageEditor.innerHTML = '';
     editStages.forEach(stage => stageEditor.appendChild(buildStageRow(stage)));
+    setTimeout(() => {
+      stageEditor.querySelectorAll('.s-description').forEach(autoGrowTextarea);
+    }, 0);
   }
 
   document.getElementById('addStage').addEventListener('click', () => {
@@ -1676,7 +1942,7 @@
     const startStr = start.toISOString().slice(0,10);
     const end = new Date(start.getTime() + 13*86400000);
     const endStr = end.toISOString().slice(0,10);
-    editStages.push({ city: 'New stage', start: startStr, end: endStr, image: '' });
+    editStages.push({ city: 'New stage', start: startStr, end: endStr, image: '', description: '' });
     editStages = sortStagesByStart(editStages);
     renderStageEditor();
   });
@@ -1783,7 +2049,8 @@
         city: s.city || '',
         start: s.start || '',
         end: s.end || '',
-        image: s.image || ''
+        image: s.image || '',
+        description: s.description || ''
       })));
       renderStageEditor();
       if(parsed.notes && typeof parsed.notes === 'object'){
