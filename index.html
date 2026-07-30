@@ -1289,6 +1289,13 @@
       <button class="btn btn-secondary" id="printTripRecord" type="button" style="flex:none; padding-left:24px; padding-right:24px;">Export as PDF</button>
     </div>
 
+    <h3>Maintenance</h3>
+    <p class="hint" style="margin-top:-6px;">If duplicate photos or info cards built up from earlier imports, clean them up here — this scans for exact duplicates and keeps only the first of each.</p>
+    <div class="modal-actions" style="margin-bottom:18px;">
+      <button class="btn btn-secondary" id="cleanupInfoBtn" type="button">Remove duplicate cards</button>
+      <button class="btn btn-secondary" id="cleanupPhotosBtn" type="button">Remove duplicate photos</button>
+    </div>
+
     <div class="modal-actions">
       <button class="btn btn-secondary" id="resetDefaults">Reset defaults</button>
       <button class="btn btn-primary" id="saveSettings">Save</button>
@@ -2760,6 +2767,76 @@
   document.getElementById('printTripRecord').addEventListener('click', (e) => buildAndPrint(e.currentTarget));
   document.getElementById('printFromSummary').addEventListener('click', (e) => buildAndPrint(e.currentTarget));
 
+  function cleanupDuplicateInfoCards(){
+    const items = loadInfo();
+    const seen = new Set();
+    const deduped = [];
+    let removed = 0;
+    items.forEach(item => {
+      const key = [item.type, item.title.trim().toLowerCase(), item.line1.trim().toLowerCase(), item.line2.trim().toLowerCase()].join('|');
+      if(seen.has(key)){
+        removed++;
+      } else {
+        seen.add(key);
+        deduped.push(item);
+      }
+    });
+    if(removed > 0) saveInfo(deduped);
+    return removed;
+  }
+
+  async function cleanupDuplicatePhotos(){
+    const db = await openPhotoDB();
+    const allPhotos = await getAllJournalPhotos();
+    const seen = new Set();
+    let removed = 0;
+    for(const photo of allPhotos){
+      let hash = photo.hash;
+      if(!hash){
+        hash = await hashBlob(photo.blob);
+        if(hash){
+          await new Promise((resolve, reject) => {
+            const tx = db.transaction(PHOTO_STORE_NAME, 'readwrite');
+            tx.objectStore(PHOTO_STORE_NAME).put({ ...photo, hash });
+            tx.oncomplete = resolve;
+            tx.onerror = () => reject(tx.error);
+          });
+        }
+      }
+      const key = photo.date + '|' + (hash || ('noHash-' + photo.id));
+      if(hash && seen.has(key)){
+        await deleteJournalPhoto(photo.id);
+        removed++;
+      } else {
+        seen.add(key);
+      }
+    }
+    return removed;
+  }
+
+  document.getElementById('cleanupInfoBtn').addEventListener('click', () => {
+    if(!confirm('Scan your info cards and remove exact duplicates, keeping the first of each? This cannot be undone.')) return;
+    const removed = cleanupDuplicateInfoCards();
+    renderInfoList();
+    alert(removed ? `Removed ${removed} duplicate card${removed === 1 ? '' : 's'}.` : 'No duplicates found.');
+  });
+
+  document.getElementById('cleanupPhotosBtn').addEventListener('click', async (e) => {
+    if(!confirm('Scan your journal photos and remove exact duplicates, keeping the first of each? This cannot be undone.')) return;
+    const btn = e.currentTarget;
+    const originalText = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = 'Scanning…';
+    try{
+      const removed = await cleanupDuplicatePhotos();
+      renderJournalCalendar();
+      alert(removed ? `Removed ${removed} duplicate photo${removed === 1 ? '' : 's'}.` : 'No duplicates found.');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = originalText;
+    }
+  });
+
   async function buildPhotosExportArray(){
     const photos = await getAllJournalPhotos();
     const result = [];
@@ -2853,20 +2930,29 @@
         });
         saveInfo(existingInfo);
       }
+      let mergedPhotoCount = 0, skippedPhotoCount = 0;
       if(photoCount){
-        let addedCount = 0, skippedCount = 0;
         for(const p of parsed.photos){
           try{
             const blob = await dataURLToBlob(p.data);
             const wasAdded = await addJournalPhotoIfNew(p.date, blob);
-            if(wasAdded) addedCount++; else skippedCount++;
+            if(wasAdded) mergedPhotoCount++; else skippedPhotoCount++;
           }catch(err){ /* skip unreadable entry, continue with the rest */ }
         }
-        renderJournalCalendar();
-        if(skippedCount){
-          alert(`Photos imported: ${addedCount} added, ${skippedCount} already present and skipped.`);
-        }
       }
+
+      // safety net: sweep for any duplicate cards/photos, whether from this import or earlier ones
+      const cardsCleaned = cleanupDuplicateInfoCards();
+      const photosCleaned = await cleanupDuplicatePhotos();
+      renderInfoList();
+      renderJournalCalendar();
+
+      const summary = [];
+      if(photoCount) summary.push(`${mergedPhotoCount} photo${mergedPhotoCount === 1 ? '' : 's'} imported`);
+      if(skippedPhotoCount) summary.push(`${skippedPhotoCount} already present, skipped`);
+      if(cardsCleaned) summary.push(`${cardsCleaned} duplicate card${cardsCleaned === 1 ? '' : 's'} cleaned up`);
+      if(photosCleaned) summary.push(`${photosCleaned} duplicate photo${photosCleaned === 1 ? '' : 's'} cleaned up`);
+      if(summary.length) alert(summary.join(' · '));
     }catch(err){
       alert("Could not read that file — please make sure it's a JSON backup exported from this app.");
     }
