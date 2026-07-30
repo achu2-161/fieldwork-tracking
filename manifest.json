@@ -1,6 +1,6 @@
 {
-  "name": "Holiday Tracker",
-  "short_name": "Holiday",
+  "name": "Fieldwork Tracker",
+  "short_name": "Fieldwork",
   "description": "Track days elapsed, days left, and trip stages.",
   "start_url": "./index.html",
   "scope": "./",
