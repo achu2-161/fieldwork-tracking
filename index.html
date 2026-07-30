@@ -494,6 +494,14 @@
     padding: 20px 22px 14px;
     z-index: 5;
   }
+  .note-modal-header__actions{
+    position:absolute;
+    top:14px; right:18px;
+    display:flex;
+    align-items:center;
+    gap:2px;
+  }
+  .note-modal-header__actions .modal-close{ position:static; }
 
   .modal h2{
     font-family:'Space Grotesk', sans-serif;
@@ -517,6 +525,13 @@
     background-position:center;
     background-color: var(--card-bg-2);
     margin-bottom:16px;
+  }
+  #stageDetailOverlay .modal-close{
+    background: rgba(20,73,61,0.85);
+    border-radius:50%;
+    width:32px; height:32px;
+    display:flex; align-items:center; justify-content:center;
+    top:12px; right:12px;
   }
   .stage-detail-description{
     font-family:'DM Sans';
@@ -763,6 +778,30 @@
     font-weight:700;
     font-size:11.5px;
     cursor:pointer;
+  }
+
+  .note-view__section{ margin-bottom:18px; }
+  .note-view__label{
+    font-family:'DM Mono', monospace;
+    font-size:11px;
+    letter-spacing:0.06em;
+    text-transform:uppercase;
+    color: var(--text-faint);
+    margin-bottom:6px;
+  }
+  .note-view__text{
+    font-family:'DM Sans';
+    font-size:14px;
+    line-height:1.6;
+    color: var(--text);
+    white-space:pre-wrap;
+  }
+  .note-view__empty{
+    font-family:'DM Sans';
+    font-size:13px;
+    color: var(--text-faint);
+    font-style:italic;
+    margin-bottom:18px;
   }
 
   .info-field{ display:flex; flex-direction:column; gap:4px; }
@@ -1138,26 +1177,15 @@
 <div class="overlay" id="noteOverlay">
   <div class="modal modal--tall modal--sticky-header">
     <div class="note-modal-header">
-      <button class="modal-close" id="closeNote" aria-label="Close">✕</button>
+      <div class="note-modal-header__actions">
+        <button type="button" class="info-row__action-btn" id="editNoteBtn" style="display:none;" aria-label="Edit"></button>
+        <button type="button" class="info-row__action-btn" id="deleteNoteIconBtn" style="display:none;" aria-label="Delete"></button>
+        <button class="modal-close" id="closeNote" aria-label="Close">✕</button>
+      </div>
       <h2 id="noteDateTitle">3 August 2026</h2>
       <p class="hint" id="noteStageHint"></p>
     </div>
-    <div class="field">
-      <label for="noteHappened">What happened</label>
-      <textarea id="noteHappened" rows="5" placeholder="What happened today?"></textarea>
-    </div>
-    <div class="field">
-      <label for="notePlaces">Places visited</label>
-      <textarea id="notePlaces" rows="2" placeholder="e.g. village market, river crossing"></textarea>
-    </div>
-    <div class="field">
-      <label for="notePeople">People met</label>
-      <textarea id="notePeople" rows="2" placeholder="e.g. village elder, local guide"></textarea>
-    </div>
-    <div class="field">
-      <label for="noteFood">Food eaten</label>
-      <textarea id="noteFood" rows="2" placeholder="e.g. hotpot, roadside noodles"></textarea>
-    </div>
+    <div id="noteFieldsContainer"></div>
     <div class="field">
       <label>Photos</label>
       <div class="note-photo-strip" id="notePhotoStrip"></div>
@@ -1166,10 +1194,7 @@
         <input type="file" accept="image/*" id="notePhotoInput" multiple style="display:none;">
       </label>
     </div>
-    <div class="modal-actions">
-      <button class="btn btn-secondary" id="deleteNote" type="button">Delete</button>
-      <button class="btn btn-primary" id="saveNote" type="button">Save</button>
-    </div>
+    <div class="modal-actions" id="noteActions"></div>
   </div>
 </div>
 
@@ -1181,7 +1206,7 @@
 
 <!-- ---------- stage detail modal ---------- -->
 <div class="overlay" id="stageDetailOverlay">
-  <div class="modal">
+  <div class="modal modal--tall">
     <button class="modal-close" id="closeStageDetail" aria-label="Close">✕</button>
     <div class="stage-detail-photo" id="stageDetailPhoto"></div>
     <h2 id="stageDetailCity">City</h2>
@@ -1201,7 +1226,7 @@
 
 <!-- ---------- trip summary modal ---------- -->
 <div class="overlay" id="tripSummaryOverlay">
-  <div class="modal">
+  <div class="modal modal--tall">
     <button class="modal-close" id="closeTripSummary" aria-label="Close">✕</button>
     <h2>Trip summary</h2>
     <p class="hint" id="tripSummaryDates"></p>
@@ -1354,12 +1379,41 @@
     return _photoDbPromise;
   }
 
+  async function hashBlob(blob){
+    try{
+      const buf = await blob.arrayBuffer();
+      const digest = await crypto.subtle.digest('SHA-256', buf);
+      return Array.from(new Uint8Array(digest)).map(b => b.toString(16).padStart(2, '0')).join('');
+    }catch(err){
+      return null; // hashing unsupported or failed — caller treats as "unknown"
+    }
+  }
+
   async function addJournalPhoto(dateStr, blob){
+    const hash = await hashBlob(blob);
     const db = await openPhotoDB();
     return new Promise((resolve, reject) => {
       const tx = db.transaction(PHOTO_STORE_NAME, 'readwrite');
-      tx.objectStore(PHOTO_STORE_NAME).add({ date: dateStr, blob, addedAt: Date.now() });
+      tx.objectStore(PHOTO_STORE_NAME).add({ date: dateStr, blob, addedAt: Date.now(), hash });
       tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  }
+
+  // Used on import: skips a photo if one with identical content already exists for that date
+  async function addJournalPhotoIfNew(dateStr, blob){
+    const hash = await hashBlob(blob);
+    if(hash){
+      const existing = await getJournalPhotosForDate(dateStr);
+      if(existing.some(p => p.hash && p.hash === hash)){
+        return false;
+      }
+    }
+    const db = await openPhotoDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(PHOTO_STORE_NAME, 'readwrite');
+      tx.objectStore(PHOTO_STORE_NAME).add({ date: dateStr, blob, addedAt: Date.now(), hash });
+      tx.oncomplete = () => resolve(true);
       tx.onerror = () => reject(tx.error);
     });
   }
@@ -1909,17 +1963,108 @@
   // ---------- journal note modal ----------
   let activeNoteDate = null;
   const noteOverlay = document.getElementById('noteOverlay');
-  const noteHappened = document.getElementById('noteHappened');
-  const notePlaces = document.getElementById('notePlaces');
-  const notePeople = document.getElementById('notePeople');
-  const noteFood = document.getElementById('noteFood');
-  const noteTextFields = [noteHappened, notePlaces, notePeople, noteFood];
+  const NOTE_FIELD_DEFS = [
+    { key: 'happened', label: 'What happened', placeholder: 'What happened today?', rows: 5 },
+    { key: 'places', label: 'Places visited', placeholder: 'e.g. village market, river crossing', rows: 2 },
+    { key: 'people', label: 'People met', placeholder: 'e.g. village elder, local guide', rows: 2 },
+    { key: 'food', label: 'Food eaten', placeholder: 'e.g. hotpot, roadside noodles', rows: 2 }
+  ];
+  let noteIsEditing = false;
+  let noteCurrentEntry = { happened: '', places: '', people: '', food: '' };
 
   function autoGrowTextarea(el){
     el.style.height = 'auto';
     el.style.height = el.scrollHeight + 'px';
   }
-  noteTextFields.forEach(el => el.addEventListener('input', () => autoGrowTextarea(el)));
+
+  function renderNoteFields(){
+    const container = document.getElementById('noteFieldsContainer');
+    container.innerHTML = '';
+    if(noteIsEditing){
+      NOTE_FIELD_DEFS.forEach(def => {
+        const field = document.createElement('div');
+        field.className = 'field';
+        field.innerHTML = `
+          <label for="note-${def.key}">${escapeHtml(def.label)}</label>
+          <textarea id="note-${def.key}" rows="${def.rows}" placeholder="${escapeHtml(def.placeholder)}"></textarea>
+        `;
+        const textarea = field.querySelector('textarea');
+        textarea.value = noteCurrentEntry[def.key];
+        textarea.addEventListener('input', () => autoGrowTextarea(textarea));
+        container.appendChild(field);
+      });
+      setTimeout(() => {
+        container.querySelectorAll('textarea').forEach(autoGrowTextarea);
+      }, 0);
+    } else {
+      const hasAny = NOTE_FIELD_DEFS.some(def => noteCurrentEntry[def.key].trim());
+      if(!hasAny){
+        const empty = document.createElement('p');
+        empty.className = 'note-view__empty';
+        empty.textContent = 'Nothing written for this day yet.';
+        container.appendChild(empty);
+      } else {
+        NOTE_FIELD_DEFS.forEach(def => {
+          const val = noteCurrentEntry[def.key].trim();
+          if(!val) return;
+          const section = document.createElement('div');
+          section.className = 'note-view__section';
+          section.innerHTML = `
+            <div class="note-view__label">${escapeHtml(def.label)}</div>
+            <div class="note-view__text">${escapeHtml(val)}</div>
+          `;
+          container.appendChild(section);
+        });
+      }
+    }
+  }
+
+  function renderNoteHeaderActions(){
+    const editBtn = document.getElementById('editNoteBtn');
+    const deleteBtn = document.getElementById('deleteNoteIconBtn');
+    editBtn.innerHTML = PENCIL_ICON_SVG;
+    deleteBtn.innerHTML = TRASH_ICON_SVG;
+    editBtn.style.display = noteIsEditing ? 'none' : '';
+    deleteBtn.style.display = noteIsEditing ? 'none' : '';
+  }
+
+  function saveNoteFromFields(){
+    if(!activeNoteDate) return;
+    const container = document.getElementById('noteFieldsContainer');
+    NOTE_FIELD_DEFS.forEach(def => {
+      const el = container.querySelector(`#note-${def.key}`);
+      noteCurrentEntry[def.key] = el ? el.value.trim() : '';
+    });
+    const journal = loadJournal();
+    const hasAny = NOTE_FIELD_DEFS.some(def => noteCurrentEntry[def.key]);
+    if(hasAny){
+      journal[activeNoteDate] = { ...noteCurrentEntry };
+      saveJournal(journal);
+      noteIsEditing = false;
+      renderNoteFields();
+      renderNoteHeaderActions();
+      renderNoteActionsBar();
+      renderJournalCalendar();
+    } else {
+      delete journal[activeNoteDate];
+      saveJournal(journal);
+      closeNoteModal();
+      renderJournalCalendar();
+    }
+  }
+
+  function renderNoteActionsBar(){
+    const actionsEl = document.getElementById('noteActions');
+    actionsEl.innerHTML = '';
+    if(noteIsEditing){
+      const saveBtn = document.createElement('button');
+      saveBtn.type = 'button';
+      saveBtn.className = 'btn btn-primary';
+      saveBtn.textContent = 'Save';
+      saveBtn.addEventListener('click', saveNoteFromFields);
+      actionsEl.appendChild(saveBtn);
+    }
+  }
 
   function openNoteModal(dateStr){
     activeNoteDate = dateStr;
@@ -1940,19 +2085,39 @@
       hint = 'Outside trip dates';
     }
     document.getElementById('noteStageHint').textContent = hint;
+
     const entry = journal[dateStr] || { happened: '', places: '', people: '', food: '' };
-    noteHappened.value = entry.happened;
-    notePlaces.value = entry.places;
-    notePeople.value = entry.people;
-    noteFood.value = entry.food;
+    noteCurrentEntry = { happened: entry.happened, places: entry.places, people: entry.people, food: entry.food };
+    noteIsEditing = !Object.values(noteCurrentEntry).some(v => v.trim());
+
+    renderNoteFields();
+    renderNoteHeaderActions();
+    renderNoteActionsBar();
+
     noteOverlay.classList.add('open');
     renderNotePhotos(dateStr);
-    setTimeout(() => noteTextFields.forEach(autoGrowTextarea), 0);
   }
   function closeNoteModal(){ noteOverlay.classList.remove('open'); activeNoteDate = null; }
 
   document.getElementById('closeNote').addEventListener('click', closeNoteModal);
   noteOverlay.addEventListener('click', (e) => { if(e.target === noteOverlay) closeNoteModal(); });
+
+  document.getElementById('editNoteBtn').addEventListener('click', () => {
+    noteIsEditing = true;
+    renderNoteFields();
+    renderNoteHeaderActions();
+    renderNoteActionsBar();
+  });
+
+  document.getElementById('deleteNoteIconBtn').addEventListener('click', () => {
+    if(!activeNoteDate) return;
+    if(!confirm('Delete this journal entry? This only removes the text — photos for this day are kept separately and won\'t be affected.')) return;
+    const journal = loadJournal();
+    delete journal[activeNoteDate];
+    saveJournal(journal);
+    closeNoteModal();
+    renderJournalCalendar();
+  });
 
   let _notePhotoObjectUrls = [];
   async function renderNotePhotos(dateStr){
@@ -2012,33 +2177,6 @@
     renderJournalCalendar();
     if(failCount) alert(`${failCount} photo${failCount === 1 ? '' : 's'} couldn't be added — the rest were saved fine.`);
     e.target.value = '';
-  });
-
-  document.getElementById('saveNote').addEventListener('click', () => {
-    if(!activeNoteDate) return;
-    const journal = loadJournal();
-    const happened = noteHappened.value.trim();
-    const places = notePlaces.value.trim();
-    const people = notePeople.value.trim();
-    const food = noteFood.value.trim();
-    if(happened || places || people || food){
-      journal[activeNoteDate] = { happened, places, people, food };
-    } else {
-      delete journal[activeNoteDate];
-    }
-    saveJournal(journal);
-    closeNoteModal();
-    renderJournalCalendar();
-  });
-
-  document.getElementById('deleteNote').addEventListener('click', () => {
-    if(!activeNoteDate) return;
-    if(!confirm('Delete this journal entry? This only removes the text — photos for this day are kept separately and won\'t be affected.')) return;
-    const journal = loadJournal();
-    delete journal[activeNoteDate];
-    saveJournal(journal);
-    closeNoteModal();
-    renderJournalCalendar();
   });
 
   // ---------- quick-reference info tab ----------
@@ -2716,13 +2854,18 @@
         saveInfo(existingInfo);
       }
       if(photoCount){
+        let addedCount = 0, skippedCount = 0;
         for(const p of parsed.photos){
           try{
             const blob = await dataURLToBlob(p.data);
-            await addJournalPhoto(p.date, blob);
+            const wasAdded = await addJournalPhotoIfNew(p.date, blob);
+            if(wasAdded) addedCount++; else skippedCount++;
           }catch(err){ /* skip unreadable entry, continue with the rest */ }
         }
         renderJournalCalendar();
+        if(skippedCount){
+          alert(`Photos imported: ${addedCount} added, ${skippedCount} already present and skipped.`);
+        }
       }
     }catch(err){
       alert("Could not read that file — please make sure it's a JSON backup exported from this app.");
