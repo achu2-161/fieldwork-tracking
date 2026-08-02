@@ -3048,6 +3048,12 @@
   })();
 
   if(!localStorage.getItem(STORAGE_KEY)){ saveData(structuredClone(DEFAULTS)); }
+
+  if('serviceWorker' in navigator){
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('sw.js').catch(() => { /* installability check will simply not pass; app still works fine */ });
+    });
+  }
   render();
 })();
 </script>
